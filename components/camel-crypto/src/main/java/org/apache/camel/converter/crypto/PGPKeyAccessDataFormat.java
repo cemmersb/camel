@@ -385,9 +385,19 @@ public class PGPKeyAccessDataFormat extends ServiceSupport implements DataFormat
 
         try {
             in = PGPUtil.getDecoderStream(encryptedStream);
-            DecryptedDataAndPPublicKeyEncryptedData encDataAndPbe = getDecryptedData(exchange, in);
-            encData = encDataAndPbe.getDecryptedData();
-            PGPObjectFactory pgpFactory = new PGPObjectFactory(encData, new BcKeyFingerprintCalculator());
+            DecryptedDataAndPPublicKeyEncryptedData encDataAndPbe = null;
+            if(algorithm != SymmetricKeyAlgorithmTags.NULL) {
+                encDataAndPbe = getDecryptedData(exchange, in);
+                encData = encDataAndPbe.getDecryptedData();
+            }
+
+            PGPObjectFactory pgpFactory;
+            if(algorithm == SymmetricKeyAlgorithmTags.NULL) {
+                pgpFactory = new PGPObjectFactory(in, new BcKeyFingerprintCalculator());
+            } else {
+                pgpFactory = new PGPObjectFactory(encData, new BcKeyFingerprintCalculator());
+            }
+
             Object object = pgpFactory.nextObject();
             if (object instanceof PGPCompressedData) {
                 PGPCompressedData comData = (PGPCompressedData) object;
@@ -429,12 +439,16 @@ public class PGPKeyAccessDataFormat extends ServiceSupport implements DataFormat
                 osb.flush();
             }
             verifySignature(pgpFactory, signature);
-            PGPPublicKeyEncryptedData pbe = encDataAndPbe.getPbe();
-            if (pbe.isIntegrityProtected()) {
-                if (!pbe.verify()) {
-                    throw new PGPException("Message failed integrity check");
+
+            if (algorithm != SymmetricKeyAlgorithmTags.NULL && null != encDataAndPbe) {
+                PGPPublicKeyEncryptedData pbe = encDataAndPbe.getPbe();
+                if (pbe.isIntegrityProtected()) {
+                    if (!pbe.verify()) {
+                        throw new PGPException("Message failed integrity check");
+                    }
                 }
             }
+
         } finally {
             IOHelper.close(osb, litData, uncompressedData, encData, in, encryptedStream);
         }

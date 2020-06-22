@@ -79,10 +79,10 @@ public abstract class AbstractPGPDataFormatTest extends CamelTestSupport {
             assertTrue(new String((byte[])e.getMessage().getBody()).startsWith("-----BEGIN PGP MESSAGE-----\n"));
             assertTrue(new String((byte[])e.getMessage().getBody()).endsWith("-----END PGP MESSAGE-----\n"));
         }
-//        awaitAndAssert(unencrypted);
-//        for (Exchange e : unencrypted.getReceivedExchanges()) {
-//            assertEquals(payload, e.getIn().getMandatoryBody(String.class));
-//        }
+        awaitAndAssert(unencrypted);
+        for (Exchange e : unencrypted.getReceivedExchanges()) {
+            assertEquals(payload, e.getIn().getMandatoryBody(String.class));
+        }
     }
 
     protected void awaitAndAssert(MockEndpoint mock) throws InterruptedException {
