@@ -167,6 +167,11 @@ public class PGPDataFormatTest extends AbstractPGPDataFormatTest {
     }
 
     @Test
+    void testSignOnly() throws Exception {
+        doRoundTripSigningTests("direct:inline-sign-only");
+    }
+
+    @Test
     void testEncryptionKeyRingByteArray() throws Exception {
         doRoundTripEncryptionTests("direct:key-ring-byte-array");
     }
@@ -558,6 +563,32 @@ public class PGPDataFormatTest extends AbstractPGPDataFormatTest {
                 from("direct:inline-sign").marshal(pgpSignAndEncrypt).to("mock:encrypted").unmarshal(pgpVerifyAndDecrypt)
                         .to("mock:unencrypted");
                 // END SNIPPET: pgp-format-signature
+
+                // START SNIPPET: pgp-format-inline-sign-only
+                PGPDataFormat pgpSignOnly = new PGPDataFormat();
+                pgpSignOnly.setKeyFileName(keyFileName);
+                pgpSignOnly.setKeyUserid(keyUserid);
+                pgpSignOnly.setSignatureKeyFileName(keyFileNameSec);
+                pgpSignOnly.setSignatureKeyUserid("Super <sdude@nowhere.net>"); // must be the exact user Id because passphrase is searched in accessor
+                pgpSignOnly.setPassphraseAccessor(getPassphraseAccessor());
+                pgpSignOnly.setProvider(getProvider());
+                pgpSignOnly.setAlgorithm(SymmetricKeyAlgorithmTags.NULL);
+                pgpSignOnly.setArmored(true);
+                pgpSignOnly.setHashAlgorithm(getHashAlgorithm());
+                pgpSignOnly.setCompressionAlgorithm(getCompressionAlgorithm());
+
+                PGPDataFormat pgpVerify = new PGPDataFormat();
+                pgpVerify.setKeyFileName(keyFileNameSec);
+                pgpVerify.setPassword(keyPassword);
+                pgpVerify.setSignatureKeyFileName(keyFileName);
+                pgpVerify.setProvider(getProvider());
+                pgpVerify.setAlgorithm(SymmetricKeyAlgorithmTags.NULL);
+                pgpVerify.setSignatureKeyUserid(keyUserid);
+
+                from("direct:inline-sign-only")
+                  .marshal(pgpSignOnly).to("mock:signed")
+                  .unmarshal(pgpVerify).to("mock:unencrypted");
+                // END SNIPPET: pgp-format-inline-sign-only
 
                 // test verifying exception, no public key found corresponding to signature key userIds
                 from("direct:verify_exception_sig_userids").marshal(pgpSignAndEncrypt).to("mock:encrypted")

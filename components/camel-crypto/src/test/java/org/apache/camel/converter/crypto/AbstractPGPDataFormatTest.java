@@ -27,9 +27,10 @@ import org.apache.camel.test.junit5.CamelTestSupport;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public abstract class AbstractPGPDataFormatTest extends CamelTestSupport {
-    
+
     protected void doRoundTripEncryptionTests(String endpoint) throws Exception {
         MockEndpoint encrypted = setupExpectations(context, 3, "mock:encrypted");
         MockEndpoint unencrypted = setupExpectations(context, 3, "mock:unencrypted");
@@ -41,6 +42,19 @@ public abstract class AbstractPGPDataFormatTest extends CamelTestSupport {
         template.sendBodyAndHeaders(endpoint, new ByteArrayInputStream(payload.getBytes()), headers);
 
         assertMocksSatisfied(encrypted, unencrypted, payload);
+    }
+
+    protected void doRoundTripSigningTests(String endpoint) throws Exception {
+        MockEndpoint signed = setupExpectations(context, 3, "mock:signed");
+        MockEndpoint unencrypted = setupExpectations(context, 3, "mock:unencrypted");
+
+        String payload = "Hi Alice, Be careful Eve is listening, signed Bob";
+        Map<String, Object> headers = getHeaders();
+        template.sendBodyAndHeaders(endpoint, payload, headers);
+        template.sendBodyAndHeaders(endpoint, payload.getBytes(), headers);
+        template.sendBodyAndHeaders(endpoint, new ByteArrayInputStream(payload.getBytes()), headers);
+
+        assertSignedMocksSatisfied(signed, unencrypted, payload);
     }
 
     protected Map<String, Object> getHeaders() {
@@ -57,6 +71,18 @@ public abstract class AbstractPGPDataFormatTest extends CamelTestSupport {
             byte[] ciphertext = e.getIn().getMandatoryBody(byte[].class);
             assertNotSame(payload, new String(ciphertext));
         }
+    }
+
+    protected void assertSignedMocksSatisfied(MockEndpoint signed, MockEndpoint unencrypted, String payload) throws Exception {
+        awaitAndAssert(signed);
+        for (Exchange e : signed.getReceivedExchanges()) {
+            assertTrue(new String((byte[])e.getMessage().getBody()).startsWith("-----BEGIN PGP MESSAGE-----\n"));
+            assertTrue(new String((byte[])e.getMessage().getBody()).endsWith("-----END PGP MESSAGE-----\n"));
+        }
+//        awaitAndAssert(unencrypted);
+//        for (Exchange e : unencrypted.getReceivedExchanges()) {
+//            assertEquals(payload, e.getIn().getMandatoryBody(String.class));
+//        }
     }
 
     protected void awaitAndAssert(MockEndpoint mock) throws InterruptedException {

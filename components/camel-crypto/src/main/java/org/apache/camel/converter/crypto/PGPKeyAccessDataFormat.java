@@ -16,19 +16,6 @@
  */
 package org.apache.camel.converter.crypto;
 
-import java.io.BufferedOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.security.SecureRandom;
-import java.security.Security;
-import java.security.SignatureException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Date;
-import java.util.List;
-
 import org.apache.camel.Exchange;
 import org.apache.camel.spi.DataFormat;
 import org.apache.camel.spi.DataFormatName;
@@ -67,6 +54,19 @@ import org.bouncycastle.openpgp.operator.jcajce.JcePublicKeyDataDecryptorFactory
 import org.bouncycastle.openpgp.operator.jcajce.JcePublicKeyKeyEncryptionMethodGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.BufferedOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.security.SecureRandom;
+import java.security.Security;
+import java.security.SignatureException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Date;
+import java.util.List;
 
 /**
  * This PGP Data Format uses the interfaces {@link PGPPublicKeyAccessor} and
@@ -216,15 +216,20 @@ public class PGPKeyAccessDataFormat extends ServiceSupport implements DataFormat
         return exchange.getIn().getHeader(Exchange.FILE_NAME, getFileName(), String.class);
     }
 
-    @Override
-    public void marshal(Exchange exchange, Object graph, OutputStream outputStream) throws Exception { //NOPMD
+    protected List<PGPPublicKey> getEncryptionKeys(Exchange exchange) throws Exception {
         List<String> userids = determineEncryptionUserIds(exchange);
         List<PGPPublicKey> keys = publicKeyAccessor.getEncryptionKeys(exchange, userids);
         if (keys.isEmpty()) {
             throw new IllegalArgumentException("Cannot PGP encrypt message. No public encryption key found for the User Ids " + userids
-                    + " in the public keyring. Either specify other User IDs or add correct public keys to the keyring.");
+              + " in the public keyring. Either specify other User IDs or add correct public keys to the keyring.");
         }
-        exchange.getOut().setHeader(NUMBER_OF_ENCRYPTION_KEYS, Integer.valueOf(keys.size()));
+        exchange.getOut().setHeader(NUMBER_OF_ENCRYPTION_KEYS, keys.size());
+        return keys;
+    }
+
+    @Override
+    public void marshal(Exchange exchange, Object graph, OutputStream outputStream) throws Exception { //NOPMD
+        List<PGPPublicKey> keys = getEncryptionKeys(exchange);
 
         InputStream input = ExchangeHelper.convertToMandatoryType(exchange, InputStream.class, graph);
 
@@ -232,21 +237,27 @@ public class PGPKeyAccessDataFormat extends ServiceSupport implements DataFormat
             outputStream = new ArmoredOutputStream(outputStream);
         }
 
-        PGPEncryptedDataGenerator encGen = new PGPEncryptedDataGenerator(new JcePGPDataEncryptorBuilder(findAlgorithm(exchange))
-                .setWithIntegrityPacket(integrity).setSecureRandom(new SecureRandom()).setProvider(getProvider()));
-        // several keys can be added
-        for (PGPPublicKey key : keys) {
-            encGen.addMethod(new JcePublicKeyKeyEncryptionMethodGenerator(key));
-        }
-        OutputStream encOut = encGen.open(outputStream, new byte[BUFFER_SIZE]);
-
         OutputStream comOut;
-        if (withCompressedDataPacket) {
-            PGPCompressedDataGenerator comData = new PGPCompressedDataGenerator(findCompressionAlgorithm(exchange));
-            comOut = new BufferedOutputStream(comData.open(encOut));
+        OutputStream encOut = null;
+
+        if (algorithm == SymmetricKeyAlgorithmTags.NULL) {
+            comOut = outputStream;
         } else {
-            comOut = encOut;
-            LOG.debug("No Compressed Data packet is added");  
+            PGPEncryptedDataGenerator encGen = new PGPEncryptedDataGenerator(new JcePGPDataEncryptorBuilder(findAlgorithm(exchange))
+              .setWithIntegrityPacket(integrity).setSecureRandom(new SecureRandom()).setProvider(getProvider()));
+            // several keys can be added
+            for (PGPPublicKey key : keys) {
+                encGen.addMethod(new JcePublicKeyKeyEncryptionMethodGenerator(key));
+            }
+            encOut = encGen.open(outputStream, new byte[BUFFER_SIZE]);
+
+            if (withCompressedDataPacket) {
+                PGPCompressedDataGenerator comData = new PGPCompressedDataGenerator(findCompressionAlgorithm(exchange));
+                comOut = new BufferedOutputStream(comData.open(encOut));
+            } else {
+                comOut = encOut;
+                LOG.debug("No Compressed Data packet is added");
+            }
         }
             
         List<PGPSignatureGenerator> sigGens = createSignatureGenerator(exchange, comOut);
@@ -278,7 +289,11 @@ public class PGPKeyAccessDataFormat extends ServiceSupport implements DataFormat
                     sigGen.generate().encode(comOut);
                 }
             }
-            IOHelper.close(comOut, encOut, outputStream, input);
+            if (algorithm == SymmetricKeyAlgorithmTags.NULL) {
+                IOHelper.close(comOut, outputStream, input);
+            } else {
+                IOHelper.close(comOut, encOut, outputStream, input);
+            }
         }
     }
 
